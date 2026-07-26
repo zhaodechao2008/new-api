@@ -33,6 +33,7 @@ import {
   User,
   Users,
   Wallet,
+  Image,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -107,6 +108,11 @@ export function useSidebarData(): SidebarData {
             title: t('Wallet'),
             url: '/wallet',
             icon: Wallet,
+          },
+          {
+            title: t('素材管理'),
+            url: '/user/assets',
+            icon: Image,
           },
           {
             title: t('Profile'),

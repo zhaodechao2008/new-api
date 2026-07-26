@@ -267,6 +267,9 @@ func migrateDB() error {
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
 	}
+	if err := migrateAssetSchema(); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -302,6 +305,8 @@ func migrateDB() error {
 		&SystemTaskLock{},
 		&CasbinRule{},
 		&AuthzRole{},
+		&Asset{},
+		&AssetGroup{},
 	)
 	if err != nil {
 		return err
@@ -363,6 +368,8 @@ func migrateDBFast() error {
 		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
+		{&Asset{}, "Asset"},
+		{&AssetGroup{}, "AssetGroup"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
@@ -588,6 +595,45 @@ PRIMARY KEY (` + "`id`" + `)
 
 // migrateTokenModelLimitsToText migrates model_limits column from varchar(1024) to text
 // This is safe to run multiple times - it checks the column type first
+func migrateAssetSchema() error {
+	if !DB.Migrator().HasTable("assets") && !DB.Migrator().HasTable("asset_groups") {
+		return nil
+	}
+
+	legacyColumns := []struct {
+		model  interface{}
+		column string
+	}{
+		{&Asset{}, "group_id"},
+		{&Asset{}, "source_type"},
+		{&AssetGroup{}, "remote_id"},
+		{&AssetGroup{}, "provider"},
+	}
+	legacySchema := false
+	for _, item := range legacyColumns {
+		if DB.Migrator().HasColumn(item.model, item.column) {
+			legacySchema = true
+			break
+		}
+	}
+	if !legacySchema {
+		return nil
+	}
+
+	if DB.Migrator().HasTable("assets") {
+		if err := DB.Migrator().DropTable("assets"); err != nil {
+			return fmt.Errorf("failed to drop legacy assets table: %w", err)
+		}
+	}
+	if DB.Migrator().HasTable("asset_groups") {
+		if err := DB.Migrator().DropTable("asset_groups"); err != nil {
+			return fmt.Errorf("failed to drop legacy asset_groups table: %w", err)
+		}
+	}
+	common.SysLog("legacy asset tables dropped; AutoMigrate will create the new schema")
+	return nil
+}
+
 func migrateTokenModelLimitsToText() error {
 	// SQLite uses type affinity, so TEXT and VARCHAR are effectively the same — no migration needed
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
