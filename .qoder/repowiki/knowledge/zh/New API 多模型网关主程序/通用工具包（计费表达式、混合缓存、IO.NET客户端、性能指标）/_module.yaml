@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: pkg
-title: 通用工具包（计费表达式、混合缓存、IO.NET客户端、性能指标）
-scope:
-    - pkg/
-source_files: []
-depends_on: []
-related_to:
-    - path: service/billing_quota_usage

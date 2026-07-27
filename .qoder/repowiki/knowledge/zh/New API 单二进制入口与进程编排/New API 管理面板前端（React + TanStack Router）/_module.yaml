@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: web_frontend
+title: New API 管理面板前端（React + TanStack Router）
+scope:
+    - web/
+source_files: []
+depends_on: []
+related_to:
+    - path: controller

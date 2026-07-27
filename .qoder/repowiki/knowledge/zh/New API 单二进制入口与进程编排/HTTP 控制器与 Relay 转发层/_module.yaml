@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: controller
+title: HTTP 控制器与 Relay 转发层
+scope:
+    - controller/
+source_files: []
+depends_on: []
+related_to:
+    - path: bin_scripts
+    - path: electron_client
+    - path: model
+    - path: relay
+    - path: router
+    - path: service
+    - path: web_frontend

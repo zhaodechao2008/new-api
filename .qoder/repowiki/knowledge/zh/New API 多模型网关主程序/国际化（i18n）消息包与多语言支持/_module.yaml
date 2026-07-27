@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: i18n
-title: 国际化（i18n）消息包与多语言支持
-scope:
-    - i18n/
-source_files: []
-depends_on: []
-related_to:
-    - path: oauth

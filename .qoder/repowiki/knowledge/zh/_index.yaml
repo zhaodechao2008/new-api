@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: dev0727
 nodes_managed: true
-exported_at: "2026-07-27T07:18:02Z"
+exported_at: "2026-07-27T10:29:32Z"
 modules:
     "":
-        dir_name: New API 多模型网关主程序
-        title: New API 多模型网关主程序
+        dir_name: New API 单二进制入口与进程编排
+        title: New API 单二进制入口与进程编排
         scope:
             - README.md
             - Dockerfile
@@ -68,7 +68,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: controller
     common:
         dir_name: 公共基础工具与运行时初始化库
         title: 公共基础工具与运行时初始化库
@@ -79,7 +80,8 @@ modules:
         depends_on: []
         related_to:
             - path: constant
-            - path: electron_client
+            - path: pkg
+            - path: types
     constant:
         dir_name: 全局常量与配置定义包
         title: 全局常量与配置定义包
@@ -90,32 +92,32 @@ modules:
         depends_on: []
         related_to:
             - path: common
+            - path: setting
     controller:
-        dir_name: HTTP API 控制器层
-        title: HTTP API 控制器层
+        dir_name: HTTP 控制器与 Relay 转发层
+        title: HTTP 控制器与 Relay 转发层
         scope:
             - controller/
         source_files: []
         children: []
         depends_on: []
         related_to:
-            - path: docs
+            - path: bin_scripts
+            - path: electron_client
             - path: model
             - path: relay
+            - path: router
             - path: service
-            - path: types
             - path: web_frontend
     docs:
-        dir_name: 项目文档与 OpenAPI 规范
-        title: 项目文档与 OpenAPI 规范
+        dir_name: New API 用户文档与 OpenAPI 规范
+        title: New API 用户文档与 OpenAPI 规范
         scope:
             - docs/
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: controller
-            - path: relay/handlers
+        related_to: []
     dto:
         dir_name: API 请求与响应 DTO 定义
         title: API 请求与响应 DTO 定义
@@ -124,7 +126,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: relay
     electron_client:
         dir_name: New API Electron 桌面客户端
         title: New API Electron 桌面客户端
@@ -134,8 +137,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: common
-            - path: web_frontend
+            - path: controller
     i18n:
         dir_name: 国际化（i18n）消息包与多语言支持
         title: 国际化（i18n）消息包与多语言支持
@@ -145,7 +147,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: oauth
+            - path: middleware
     middleware:
         dir_name: Gin HTTP 中间件集合
         title: Gin HTTP 中间件集合
@@ -155,10 +157,11 @@ modules:
         children: []
         depends_on: []
         related_to:
+            - path: i18n
             - path: router
     model:
-        dir_name: 模型层与数据库基础设施
-        title: 模型层与数据库基础设施
+        dir_name: 数据模型与持久化基础设施层
+        title: 数据模型与持久化基础设施层
         scope:
             - model/
         source_files: []
@@ -222,7 +225,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: model/task_system
     model/external_integrations:
         dir_name: 外部集成与第三方身份模型
         title: 外部集成与第三方身份模型
@@ -260,7 +264,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: model/pricing_subscription
+            - path: service/billing_quota_usage
     model/pricing_subscription:
         dir_name: 模型定价与订阅计费模块
         title: 模型定价与订阅计费模块
@@ -276,7 +280,6 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: model/payment_topup_redemption
             - path: service/billing_quota_usage
     model/system_config:
         dir_name: 系统配置与数据库初始化
@@ -291,7 +294,9 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: service/system_instance_config
+            - path: setting
     model/task_system:
         dir_name: 任务系统与异步任务模型
         title: 任务系统与异步任务模型
@@ -304,6 +309,7 @@ modules:
         children: []
         depends_on: []
         related_to:
+            - path: model/core_models
             - path: service/task_system
     model/usage_data:
         dir_name: 用量统计与流量排行数据模型
@@ -317,7 +323,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: service/billing_quota_usage
+            - path: service/utilities_helpers
     model/user_auth:
         dir_name: 用户认证与会话模型层
         title: 用户认证与会话模型层
@@ -347,7 +353,6 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: i18n
             - path: model/external_integrations
     pkg:
         dir_name: 通用工具包（计费表达式、混合缓存、IO.NET客户端、性能指标）
@@ -358,7 +363,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: service/billing_quota_usage
+            - path: common
     relay:
         dir_name: 多模型 API 中继转发核心层
         title: 多模型 API 中继转发核心层
@@ -370,6 +375,7 @@ modules:
         depends_on: []
         related_to:
             - path: controller
+            - path: dto
     relay/handlers:
         dir_name: 多协议请求转发与适配器处理层
         title: 多协议请求转发与适配器处理层
@@ -389,26 +395,22 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: docs
-            - path: service/billing_quota_usage
-            - path: service/conversion_text_token
-            - path: service/http_client_webhook
-            - path: service/media_file_services
+            - path: service
             - path: service/midjourney_codex
     router:
-        dir_name: HTTP 路由与中间件装配层
-        title: HTTP 路由与中间件装配层
+        dir_name: HTTP 路由装配与中间件编排
+        title: HTTP 路由装配与中间件编排
         scope:
             - router/
         source_files: []
         children: []
         depends_on: []
         related_to:
+            - path: controller
             - path: middleware
-            - path: web_frontend
     service:
-        dir_name: 服务层聚合模块（service）
-        title: 服务层聚合模块（service）
+        dir_name: 服务编排层（service）
+        title: 服务编排层（service）
         scope:
             - service/
         source_files: []
@@ -427,7 +429,7 @@ modules:
         depends_on: []
         related_to:
             - path: controller
-            - path: web_frontend
+            - path: relay/handlers
     service/auth_session_token:
         dir_name: 认证会话与令牌管理
         title: 认证会话与令牌管理
@@ -456,11 +458,8 @@ modules:
         children: []
         depends_on: []
         related_to:
+            - path: model/payment_topup_redemption
             - path: model/pricing_subscription
-            - path: model/usage_data
-            - path: pkg
-            - path: relay/handlers
-            - path: service/task_system
     service/channel_management:
         dir_name: 渠道管理与亲和性选择
         title: 渠道管理与亲和性选择
@@ -475,7 +474,6 @@ modules:
         depends_on: []
         related_to:
             - path: model/channel
-            - path: service/midjourney_codex
     service/conversion_text_token:
         dir_name: 请求_响应转换与 Token 计数
         title: 请求/响应转换与 Token 计数
@@ -490,8 +488,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: relay/handlers
+        related_to: []
     service/http_client_webhook:
         dir_name: HTTP 客户端与 Webhook 通知服务
         title: HTTP 客户端与 Webhook 通知服务
@@ -503,8 +500,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: relay/handlers
+        related_to: []
     service/media_file_services:
         dir_name: 媒体文件服务（下载、解码与缓存）
         title: 媒体文件服务（下载、解码与缓存）
@@ -517,8 +513,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: relay/handlers
+        related_to: []
     service/midjourney_codex:
         dir_name: Midjourney 代理与 Codex OAuth 凭证管理
         title: Midjourney 代理与 Codex OAuth 凭证管理
@@ -532,7 +527,6 @@ modules:
         depends_on: []
         related_to:
             - path: relay/handlers
-            - path: service/channel_management
     service/system_instance_config:
         dir_name: 系统实例监控与通用服务工具
         title: 系统实例监控与通用服务工具
@@ -545,7 +539,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: model/system_config
     service/task_system:
         dir_name: 系统任务调度与后台定时任务
         title: 系统任务调度与后台定时任务
@@ -559,7 +554,6 @@ modules:
         depends_on: []
         related_to:
             - path: model/task_system
-            - path: service/billing_quota_usage
     service/user_services:
         dir_name: 用户通知、分组与资金来源服务
         title: 用户通知、分组与资金来源服务
@@ -583,7 +577,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: model/usage_data
     setting:
         dir_name: 系统配置与模型定价设置模块
         title: 系统配置与模型定价设置模块
@@ -592,7 +587,9 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: constant
+            - path: model/system_config
     types:
         dir_name: 通用类型与错误定义
         title: 通用类型与错误定义
@@ -602,10 +599,10 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: controller
+            - path: common
     web_frontend:
-        dir_name: Web 前端应用（React + TanStack Router）
-        title: Web 前端应用（React + TanStack Router）
+        dir_name: New API 管理面板前端（React + TanStack Router）
+        title: New API 管理面板前端（React + TanStack Router）
         scope:
             - web/
         source_files: []
@@ -613,6 +610,3 @@ modules:
         depends_on: []
         related_to:
             - path: controller
-            - path: electron_client
-            - path: router
-            - path: service

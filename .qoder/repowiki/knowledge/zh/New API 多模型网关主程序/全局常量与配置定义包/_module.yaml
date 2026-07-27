@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: constant
-title: 全局常量与配置定义包
-scope:
-    - constant/
-source_files: []
-depends_on: []
-related_to:
-    - path: common

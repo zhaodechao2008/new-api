@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: setting
-title: 系统配置与模型定价设置模块
-scope:
-    - setting/
-source_files: []
-depends_on: []
-related_to: []
