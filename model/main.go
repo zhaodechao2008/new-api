@@ -270,9 +270,11 @@ func migrateDB() error {
 	if err := migrateAssetSchema(); err != nil {
 		return err
 	}
-	// Drop the old auto-generated unique constraint on prefill_groups.name if it
-	// exists; AutoMigrate will recreate it with the correct partial-index name.
-	dropPrefillGroupsOldIndex()
+	// Migrate PrefillGroup separately: it can hit a stale constraint drop on the
+	// shared PostgreSQL DB that would otherwise abort the whole batch below.
+	if err := migratePrefillGroup(); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -292,7 +294,6 @@ func migrateDB() error {
 		&Task{},
 		&Model{},
 		&Vendor{},
-		&PrefillGroup{},
 		&Setup{},
 		&TwoFA{},
 		&TwoFABackupCode{},
@@ -596,12 +597,27 @@ PRIMARY KEY (` + "`id`" + `)
 	return nil
 }
 
-// dropPrefillGroupsOldIndex drops the old auto-generated unique index on
-// prefill_groups.name if it exists. AutoMigrate will recreate it with the
-// correct partial-index name (uk_prefill_name). Safe to run multiple times.
-func dropPrefillGroupsOldIndex() {
+// migratePrefillGroup migrates the PrefillGroup table on its own so a transient
+// GORM index/constraint churn on the shared database does not abort the whole
+// AutoMigrate batch. On PostgreSQL, GORM may emit a bare
+// "DROP CONSTRAINT uni_prefill_groups_name" against a constraint that no longer
+// exists (SQLSTATE 42704) when the unique index was already migrated to the
+// partial-index form by another node. In that case the schema is already
+// correct, so the error is safe to tolerate.
+func migratePrefillGroup() error {
+	// Proactively drop any leftover old-style unique constraint/index; harmless if absent.
 	_ = DB.Exec("ALTER TABLE prefill_groups DROP CONSTRAINT IF EXISTS uni_prefill_groups_name")
 	_ = DB.Exec("DROP INDEX IF EXISTS uni_prefill_groups_name")
+
+	if err := DB.AutoMigrate(&PrefillGroup{}); err != nil {
+		if strings.Contains(err.Error(), "uni_prefill_groups_name") &&
+			strings.Contains(err.Error(), "does not exist") {
+			common.SysError("prefill_groups: tolerated stale constraint drop during migrate: " + err.Error())
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // migrateTokenModelLimitsToText migrates model_limits column from varchar(1024) to text
