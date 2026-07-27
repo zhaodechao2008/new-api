@@ -64,3 +64,41 @@ export interface AssetsResponse {
   success: boolean
   data: PagedData<Asset>
 }
+
+export interface CreateAssetGroupRequest {
+  name: string
+  description?: string
+  group_type?: string
+  project_name?: string
+}
+
+export interface CreateAssetGroupResponse {
+  success: boolean
+  data: AssetGroup
+}
+
+export interface DeleteAssetGroupResponse {
+  success: boolean
+}
+
+export interface UpdateAssetGroupRequest {
+  name: string
+  description?: string
+}
+
+export interface UpdateAssetGroupResponse {
+  success: boolean
+  data: AssetGroup
+}
+
+export interface CreateAssetByUrlRequest {
+  url: string
+  name?: string
+  asset_type?: string
+  mime_type?: string
+}
+
+export interface CreateAssetResponse {
+  success: boolean
+  data: Asset
+}

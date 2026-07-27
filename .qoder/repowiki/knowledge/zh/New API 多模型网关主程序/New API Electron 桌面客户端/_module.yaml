@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: electron_client
+title: New API Electron 桌面客户端
+scope:
+    - electron/
+source_files: []
+depends_on: []
+related_to:
+    - path: common
+    - path: web_frontend

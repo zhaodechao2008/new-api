@@ -1,0 +1,24 @@
+schema_version: 1
+module_path: relay/handlers
+title: 多协议请求转发与适配器处理层
+scope:
+    - relay/chat_completions_via_responses.go
+    - relay/responses_handler.go
+    - relay/claude_handler.go
+    - relay/gemini_handler.go
+    - relay/audio_handler.go
+    - relay/image_handler.go
+    - relay/embedding_handler.go
+    - relay/rerank_handler.go
+    - relay/mjproxy_handler.go
+    - relay/compatible_handler.go
+    - relay/websocket.go
+source_files: []
+depends_on: []
+related_to:
+    - path: docs
+    - path: service/billing_quota_usage
+    - path: service/conversion_text_token
+    - path: service/http_client_webhook
+    - path: service/media_file_services
+    - path: service/midjourney_codex

@@ -1,13 +1,21 @@
 import { api } from '@/lib/api'
 
 import type {
+  Asset,
   AssetConfig,
   AssetConfigResponse,
   AssetGroup,
   AssetGroupDetailsResponse,
   AssetGroupsResponse,
   AssetsResponse,
+  CreateAssetByUrlRequest,
+  CreateAssetGroupRequest,
+  CreateAssetGroupResponse,
+  CreateAssetResponse,
+  DeleteAssetGroupResponse,
   PagedData,
+  UpdateAssetGroupRequest,
+  UpdateAssetGroupResponse,
 } from './types'
 
 export interface AssetListParams {
@@ -19,8 +27,14 @@ export interface AssetListParams {
   sort?: string
 }
 
-export async function getAssetGroups(): Promise<PagedData<AssetGroup>> {
-  const res = await api.get<AssetGroupsResponse>('/api/assets/groups')
+export async function getAssetGroups(
+  groupType?: string
+): Promise<PagedData<AssetGroup>> {
+  const params: Record<string, string> = {}
+  if (groupType) params.group_type = groupType
+  const res = await api.get<AssetGroupsResponse>('/api/assets/groups', {
+    params,
+  })
   return res.data.data
 }
 
@@ -50,6 +64,58 @@ export async function listAssets(
 
   const res = await api.get<AssetsResponse>(
     `/api/assets/groups/${groupId}/items?${query.toString()}`
+  )
+  return res.data.data
+}
+
+export async function createAssetGroup(
+  data: CreateAssetGroupRequest
+): Promise<AssetGroup> {
+  const res = await api.post<CreateAssetGroupResponse>(
+    '/api/assets/groups',
+    data
+  )
+  return res.data.data
+}
+
+export async function deleteAssetGroup(groupId: number): Promise<void> {
+  await api.delete<DeleteAssetGroupResponse>(`/api/assets/groups/${groupId}`)
+}
+
+export async function updateAssetGroup(
+  groupId: number,
+  data: UpdateAssetGroupRequest
+): Promise<AssetGroup> {
+  const res = await api.patch<UpdateAssetGroupResponse>(
+    `/api/assets/groups/${groupId}`,
+    data
+  )
+  return res.data.data
+}
+
+export async function uploadAsset(
+  groupId: number,
+  file: File
+): Promise<Asset> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await api.post<CreateAssetResponse>(
+    `/api/assets/groups/${groupId}/items`,
+    formData,
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }
+  )
+  return res.data.data
+}
+
+export async function createAssetByUrl(
+  groupId: number,
+  data: CreateAssetByUrlRequest
+): Promise<Asset> {
+  const res = await api.post<CreateAssetResponse>(
+    `/api/assets/groups/${groupId}/items`,
+    data
   )
   return res.data.data
 }

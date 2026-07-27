@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: model/external_integrations
+title: 外部集成与第三方身份模型
+scope:
+    - model/custom_oauth_provider.go
+    - model/external_identity_claim.go
+    - model/external_identity_claim_test.go
+    - model/midjourney.go
+    - model/vendor_meta.go
+source_files: []
+depends_on: []
+related_to:
+    - path: oauth

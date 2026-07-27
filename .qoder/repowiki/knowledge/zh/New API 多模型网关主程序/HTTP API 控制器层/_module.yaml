@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: controller
+title: HTTP API 控制器层
+scope:
+    - controller/
+source_files: []
+depends_on: []
+related_to:
+    - path: docs
+    - path: model
+    - path: relay
+    - path: service
+    - path: types
+    - path: web_frontend

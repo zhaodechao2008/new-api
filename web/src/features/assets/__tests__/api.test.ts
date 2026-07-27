@@ -24,10 +24,14 @@ import type { AxiosAdapter, AxiosResponse } from 'axios'
 import { api } from '@/lib/api'
 
 import {
+  createAssetByUrl,
+  createAssetGroup,
+  deleteAssetGroup,
   getAssetConfig,
   getAssetGroupDetails,
   getAssetGroups,
   listAssets,
+  uploadAsset,
 } from '../api'
 import type { Asset, AssetConfig, AssetGroup } from '../types'
 
@@ -103,11 +107,26 @@ describe('asset API response contracts', () => {
     }) satisfies AxiosAdapter
 
     assert.deepEqual((await getAssetGroups()).items, [group])
+    assert.deepEqual((await getAssetGroups('AIGC')).items, [group])
     assert.deepEqual(await getAssetConfig(), config)
     assert.deepEqual(await getAssetGroupDetails(82), {
       group,
       assets: [asset],
     })
+  })
+
+  test('forwards group_type filter when listing groups', async () => {
+    let capturedParams: Record<string, string> | undefined
+    api.defaults.adapter = (async (request) => {
+      capturedParams = request.params as Record<string, string> | undefined
+      return response({
+        success: true,
+        data: { items: [], page: 1, page_size: 20, total: 0 },
+      })
+    }) satisfies AxiosAdapter
+
+    await getAssetGroups('LivenessFace')
+    assert.equal(capturedParams?.group_type, 'LivenessFace')
   })
 
   test('forwards pagination and filters when listing assets', async () => {
@@ -138,5 +157,86 @@ describe('asset API response contracts', () => {
     assert.equal(request.searchParams.get('status'), 'Active')
     assert.equal(request.searchParams.get('sort'), 'created_desc')
     assert.deepEqual(result.items, [asset])
+  })
+
+  test('creates an asset group via POST', async () => {
+    let capturedMethod = ''
+    let capturedURL = ''
+    let capturedBody: unknown = null
+    api.defaults.adapter = (async (request) => {
+      capturedMethod = request.method ?? 'GET'
+      capturedURL = request.url ?? ''
+      capturedBody = JSON.parse(request.data as string)
+      return response({ success: true, data: group })
+    }) satisfies AxiosAdapter
+
+    const result = await createAssetGroup({
+      name: 'Demo',
+      group_type: 'AIGC',
+    })
+
+    assert.equal(capturedMethod, 'post')
+    assert.equal(capturedURL, '/api/assets/groups')
+    assert.deepEqual(capturedBody, { name: 'Demo', group_type: 'AIGC' })
+    assert.deepEqual(result, group)
+  })
+
+  test('deletes an asset group via DELETE', async () => {
+    let capturedMethod = ''
+    let capturedURL = ''
+    api.defaults.adapter = (async (request) => {
+      capturedMethod = request.method ?? 'GET'
+      capturedURL = request.url ?? ''
+      return response({ success: true })
+    }) satisfies AxiosAdapter
+
+    await deleteAssetGroup(82)
+
+    assert.equal(capturedMethod, 'delete')
+    assert.equal(capturedURL, '/api/assets/groups/82')
+  })
+
+  test('uploads an asset via multipart form data', async () => {
+    let capturedMethod = ''
+    let capturedURL = ''
+    let capturedContentType = ''
+    api.defaults.adapter = (async (request) => {
+      capturedMethod = request.method ?? 'GET'
+      capturedURL = request.url ?? ''
+      capturedContentType =
+        (request.headers?.['Content-Type'] as string) ?? ''
+      return response({ success: true, data: asset })
+    }) satisfies AxiosAdapter
+
+    const file = new File(['fake-image'], 'image.png', {
+      type: 'image/png',
+    })
+    const result = await uploadAsset(82, file)
+
+    assert.equal(capturedMethod, 'post')
+    assert.equal(capturedURL, '/api/assets/groups/82/items')
+    assert.ok(capturedContentType.includes('multipart/form-data'))
+    assert.deepEqual(result, asset)
+  })
+
+  test('creates an asset by URL via JSON body', async () => {
+    let capturedMethod = ''
+    let capturedURL = ''
+    let capturedBody: unknown = null
+    api.defaults.adapter = (async (request) => {
+      capturedMethod = request.method ?? 'GET'
+      capturedURL = request.url ?? ''
+      capturedBody = JSON.parse(request.data as string)
+      return response({ success: true, data: asset })
+    }) satisfies AxiosAdapter
+
+    const result = await createAssetByUrl(82, {
+      url: 'https://example.com/image.png',
+    })
+
+    assert.equal(capturedMethod, 'post')
+    assert.equal(capturedURL, '/api/assets/groups/82/items')
+    assert.deepEqual(capturedBody, { url: 'https://example.com/image.png' })
+    assert.deepEqual(result, asset)
   })
 })

@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: service/auth_session_token
+title: 认证会话与令牌管理
+scope:
+    - service/auth_cleanup.go
+    - service/auth_session.go
+    - service/auth_token.go
+source_files: []
+depends_on: []
+related_to:
+    - path: model/user_auth

@@ -270,6 +270,9 @@ func migrateDB() error {
 	if err := migrateAssetSchema(); err != nil {
 		return err
 	}
+	// Drop the old auto-generated unique constraint on prefill_groups.name if it
+	// exists; AutoMigrate will recreate it with the correct partial-index name.
+	dropPrefillGroupsOldIndex()
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -591,6 +594,14 @@ PRIMARY KEY (` + "`id`" + `)
 		}
 	}
 	return nil
+}
+
+// dropPrefillGroupsOldIndex drops the old auto-generated unique index on
+// prefill_groups.name if it exists. AutoMigrate will recreate it with the
+// correct partial-index name (uk_prefill_name). Safe to run multiple times.
+func dropPrefillGroupsOldIndex() {
+	_ = DB.Exec("ALTER TABLE prefill_groups DROP CONSTRAINT IF EXISTS uni_prefill_groups_name")
+	_ = DB.Exec("DROP INDEX IF EXISTS uni_prefill_groups_name")
 }
 
 // migrateTokenModelLimitsToText migrates model_limits column from varchar(1024) to text

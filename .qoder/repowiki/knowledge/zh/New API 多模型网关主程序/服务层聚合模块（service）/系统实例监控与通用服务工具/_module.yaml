@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: service/system_instance_config
+title: 系统实例监控与通用服务工具
+scope:
+    - service/system_instance.go
+    - service/sensitive.go
+    - service/str.go
+    - service/error.go
+    - service/log_info_generate.go
+source_files: []
+depends_on: []
+related_to: []

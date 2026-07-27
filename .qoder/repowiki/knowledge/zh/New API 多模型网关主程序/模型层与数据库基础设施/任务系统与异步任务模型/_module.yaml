@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: model/task_system
+title: 任务系统与异步任务模型
+scope:
+    - model/task.go
+    - model/system_task.go
+    - model/system_task_test.go
+    - model/task_cas_test.go
+source_files: []
+depends_on: []
+related_to:
+    - path: service/task_system

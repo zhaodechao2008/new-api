@@ -1,0 +1,16 @@
+schema_version: 1
+module_path: model/pricing_subscription
+title: 模型定价与订阅计费模块
+scope:
+    - model/pricing.go
+    - model/pricing_default.go
+    - model/pricing_endpoint_test.go
+    - model/pricing_refresh.go
+    - model/subscription.go
+    - model/subscription_auth_test.go
+    - model/subscription_reset_test.go
+source_files: []
+depends_on: []
+related_to:
+    - path: model/payment_topup_redemption
+    - path: service/billing_quota_usage

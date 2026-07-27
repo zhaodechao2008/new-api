@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: service/http_client_webhook
+title: HTTP 客户端与 Webhook 通知服务
+scope:
+    - service/http.go
+    - service/http_client.go
+    - service/protected_fetch_client.go
+    - service/webhook.go
+source_files: []
+depends_on: []
+related_to:
+    - path: relay/handlers

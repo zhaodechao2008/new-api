@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,11 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
+
+// ecloudSvc returns a configured AssetService reading from env by default.
+func ecloudSvc() *service.AssetService {
+	return service.NewAssetService("", "")
+}
 
 func ListAssetGroups(c *gin.Context) {
 	page := parsePositiveInt(c.DefaultQuery("p", "1"), 1)
@@ -132,6 +138,8 @@ func ListAssets(c *gin.Context) {
 	})
 }
 
+// CreateAssetGroup creates a local group record. The ecloud group is created
+// lazily when the first asset is uploaded (since ecloud has no empty-group API).
 func CreateAssetGroup(c *gin.Context) {
 	var req struct {
 		Name        string `json:"name" binding:"required"`
@@ -150,9 +158,10 @@ func CreateAssetGroup(c *gin.Context) {
 		req.ProjectName = "default"
 	}
 	now := common.GetTimestamp()
+	// Use "local-" prefix to indicate group is not yet synced to ecloud.
 	group := &model.AssetGroup{
 		UserID:          c.GetInt("id"),
-		ProviderGroupID: "group-" + common.GetTimeString() + "-" + common.GetRandomString(5),
+		ProviderGroupID: "local-" + common.GetTimeString() + "-" + common.GetRandomString(5),
 		Name:            strings.TrimSpace(req.Name),
 		Description:     strings.TrimSpace(req.Description),
 		GroupType:       req.GroupType,
@@ -167,19 +176,64 @@ func CreateAssetGroup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": group})
 }
 
+func UpdateAssetGroup(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("group_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid group_id"})
+		return
+	}
+	var req struct {
+		Name        string `json:"name" binding:"required"`
+		Description string `json:"description"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	userID := c.GetInt("id")
+	if err := model.UpdateAssetGroup(userID, groupID, strings.TrimSpace(req.Name), strings.TrimSpace(req.Description)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	group, err := model.GetAssetGroup(userID, groupID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": true})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": group})
+}
+
+// DeleteAssetGroup deletes the group from ecloud (if synced) then from local DB.
 func DeleteAssetGroup(c *gin.Context) {
 	groupID, err := strconv.ParseInt(c.Param("group_id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid group_id"})
 		return
 	}
-	if err := model.DeleteAssetGroup(c.GetInt("id"), groupID); err != nil {
+	userID := c.GetInt("id")
+	group, err := model.GetAssetGroup(userID, groupID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "asset group not found"})
+		return
+	}
+
+	// Delete from ecloud if already synced (real ecloud IDs start with "group-")
+	if strings.HasPrefix(group.ProviderGroupID, "group-") {
+		svc := ecloudSvc()
+		if svcErr := svc.DeleteGroup(group.ProviderGroupID); svcErr != nil {
+			// Log but don't fail; allow local cleanup to proceed.
+			common.SysError(fmt.Sprintf("ecloud DeleteGroup %s: %v", group.ProviderGroupID, svcErr))
+		}
+	}
+
+	if err := model.DeleteAssetGroup(userID, groupID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// CreateAsset handles both multipart file upload and JSON URL import.
 func CreateAsset(c *gin.Context) {
 	groupID, err := strconv.ParseInt(c.Param("group_id"), 10, 64)
 	if err != nil {
@@ -187,16 +241,17 @@ func CreateAsset(c *gin.Context) {
 		return
 	}
 	userID := c.GetInt("id")
-	if _, err := model.GetAssetGroup(userID, groupID); err != nil {
+	group, err := model.GetAssetGroup(userID, groupID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "asset group not found"})
 		return
 	}
 
 	var asset *model.Asset
 	if strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
-		asset, err = createUploadedAsset(c, userID, groupID)
+		asset, err = createUploadedAsset(c, userID, group)
 	} else {
-		asset, err = createURLAsset(c, userID, groupID)
+		asset, err = createURLAsset(c, userID, group)
 	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
@@ -209,7 +264,7 @@ func CreateAsset(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": asset})
 }
 
-func createUploadedAsset(c *gin.Context, userID int, groupID int64) (*model.Asset, error) {
+func createUploadedAsset(c *gin.Context, userID int, group *model.AssetGroup) (*model.Asset, error) {
 	file, err := c.FormFile("file")
 	if err != nil {
 		return nil, fmt.Errorf("file is required: %w", err)
@@ -222,10 +277,61 @@ func createUploadedAsset(c *gin.Context, userID int, groupID int64) (*model.Asse
 	if assetType == "" {
 		return nil, fmt.Errorf("unsupported file type")
 	}
-	return newLocalAsset(userID, groupID, file.Filename, assetType, file.Header.Get("Content-Type"), file.Size, ""), nil
+
+	svc := ecloudSvc()
+
+	src, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer src.Close()
+
+	var ecloudAssetID, ecloudAssetURL string
+	var ecloudGroupID = group.ProviderGroupID
+
+	if strings.HasPrefix(group.ProviderGroupID, "local-") {
+		// First upload for this group: create a new ecloud group.
+		detail, uploadErr := svc.UploadToNewGroup(group.Name, []io.Reader{src}, []string{file.Filename})
+		if uploadErr != nil {
+			return nil, fmt.Errorf("ecloud upload failed: %w", uploadErr)
+		}
+		ecloudGroupID = detail.Group.GroupID
+		// Update local group's provider ID with the real ecloud group ID.
+		_ = model.UpdateAssetGroupProviderID(group.ID, ecloudGroupID)
+		if len(detail.Assets) > 0 {
+			ecloudAssetID = detail.Assets[0].AssetID
+			ecloudAssetURL = detail.Assets[0].AssetURL
+		}
+	} else {
+		// Append to existing ecloud group.
+		assets, uploadErr := svc.AppendToGroup(group.ProviderGroupID, []io.Reader{src}, []string{file.Filename})
+		if uploadErr != nil {
+			return nil, fmt.Errorf("ecloud upload failed: %w", uploadErr)
+		}
+		if len(assets) > 0 {
+			ecloudAssetID = assets[0].AssetID
+			ecloudAssetURL = assets[0].AssetURL
+		}
+	}
+
+	_ = ecloudGroupID // used above
+	now := common.GetTimestamp()
+	return &model.Asset{
+		UserID:          userID,
+		AssetGroupID:    group.ID,
+		ProviderAssetID: ecloudAssetID,
+		Name:            file.Filename,
+		AssetType:       assetType,
+		URL:             ecloudAssetURL,
+		Status:          "Active",
+		MimeType:        file.Header.Get("Content-Type"),
+		Size:            file.Size,
+		CreatedTime:     now,
+		UpdatedTime:     now,
+	}, nil
 }
 
-func createURLAsset(c *gin.Context, userID int, groupID int64) (*model.Asset, error) {
+func createURLAsset(c *gin.Context, userID int, group *model.AssetGroup) (*model.Asset, error) {
 	var req struct {
 		URL       string `json:"url" binding:"required,url"`
 		Name      string `json:"name"`
@@ -245,24 +351,38 @@ func createURLAsset(c *gin.Context, userID int, groupID int64) (*model.Asset, er
 	if req.AssetType == "" {
 		return nil, fmt.Errorf("asset_type is required")
 	}
-	return newLocalAsset(userID, groupID, name, req.AssetType, req.MimeType, 0, req.URL), nil
-}
 
-func newLocalAsset(userID int, groupID int64, name string, assetType string, mimeType string, size int64, url string) *model.Asset {
+	svc := ecloudSvc()
+	detail, err := svc.ImportURL(req.URL, req.AssetType, name)
+	if err != nil {
+		return nil, fmt.Errorf("ecloud import failed: %w", err)
+	}
+
+	// If the local group is not yet synced, update it with the ecloud group ID.
+	if strings.HasPrefix(group.ProviderGroupID, "local-") && detail.Group.GroupID != "" {
+		_ = model.UpdateAssetGroupProviderID(group.ID, detail.Group.GroupID)
+	}
+
+	var ecloudAssetID, ecloudAssetURL string
+	if len(detail.Assets) > 0 {
+		ecloudAssetID = detail.Assets[0].AssetID
+		ecloudAssetURL = detail.Assets[0].AssetURL
+	}
+
 	now := common.GetTimestamp()
 	return &model.Asset{
 		UserID:          userID,
-		AssetGroupID:    groupID,
-		ProviderAssetID: "asset-" + common.GetTimeString() + "-" + common.GetRandomString(5),
+		AssetGroupID:    group.ID,
+		ProviderAssetID: ecloudAssetID,
 		Name:            name,
-		AssetType:       assetType,
-		URL:             url,
+		AssetType:       req.AssetType,
+		URL:             ecloudAssetURL,
 		Status:          "Active",
-		MimeType:        mimeType,
-		Size:            size,
+		MimeType:        req.MimeType,
+		Size:            0,
 		CreatedTime:     now,
 		UpdatedTime:     now,
-	}
+	}, nil
 }
 
 func assetTypeFromExtension(extension string) string {

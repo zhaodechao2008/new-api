@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: model/channel
+title: 渠道模型与缓存管理
+scope:
+    - model/channel.go
+    - model/channel_cache.go
+    - model/channel_satisfy.go
+    - model/channel_settings_test.go
+source_files: []
+depends_on: []
+related_to:
+    - path: service/channel_management

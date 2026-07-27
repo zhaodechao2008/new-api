@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: model
+title: 模型层与数据库基础设施
+scope:
+    - model/
+source_files: []
+depends_on: []
+related_to:
+    - path: controller

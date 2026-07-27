@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: service/midjourney_codex
+title: Midjourney 代理与 Codex OAuth 凭证管理
+scope:
+    - service/midjourney.go
+    - service/codex_oauth.go
+    - service/codex_wham_usage.go
+    - service/codex_credential_refresh.go
+source_files: []
+depends_on: []
+related_to:
+    - path: relay/handlers
+    - path: service/channel_management

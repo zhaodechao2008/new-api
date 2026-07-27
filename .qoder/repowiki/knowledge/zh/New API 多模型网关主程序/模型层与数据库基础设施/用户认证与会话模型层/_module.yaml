@@ -1,0 +1,19 @@
+schema_version: 1
+module_path: model/user_auth
+title: 用户认证与会话模型层
+scope:
+    - model/user.go
+    - model/user_cache.go
+    - model/user_session.go
+    - model/user_oauth_binding.go
+    - model/user_authentication_test.go
+    - model/user_update_test.go
+    - model/user_pagination_test.go
+    - model/user_session_migration_test.go
+    - model/user_session_test.go
+    - model/user_cache_auth_version_test.go
+source_files: []
+depends_on: []
+related_to:
+    - path: model/auth_identity
+    - path: service/auth_session_token

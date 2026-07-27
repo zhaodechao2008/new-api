@@ -1,83 +1,113 @@
+import { Folder, ScanFace } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { Badge } from '@/components/ui/badge'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from '@/components/ui/empty'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import type { AssetGroup } from '../types'
 
 interface AssetGroupListProps {
   groups: AssetGroup[]
+  selectedGroupId: number | null
   onSelectGroup: (groupId: number) => void
+  groupType: string
+  onGroupTypeChange: (type: string) => void
+  search: string
+  onSearchChange: (value: string) => void
+  onCreateGroup: () => void
 }
 
 export default function AssetGroupList(props: AssetGroupListProps) {
   const { t } = useTranslation()
 
-  if (props.groups.length === 0) {
-    return (
-      <Empty className='border'>
-        <EmptyHeader>
-          <EmptyTitle>{t('No asset groups')}</EmptyTitle>
-          <EmptyDescription>
-            {t('Create an asset group before adding assets.')}
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    )
-  }
+  const filtered = props.groups.filter((group) =>
+    group.name.toLowerCase().includes(props.search.toLowerCase())
+  )
 
   return (
-    <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
-      {props.groups.map((group) => (
-        <Card
-          key={group.id}
-          className='cursor-pointer transition-colors hover:bg-muted/40'
-          onClick={() => props.onSelectGroup(group.id)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault()
-              props.onSelectGroup(group.id)
-            }
-          }}
-          role='button'
-          tabIndex={0}
-        >
-          <CardHeader>
-            <div className='flex min-w-0 items-start justify-between gap-3'>
-              <CardTitle className='truncate' title={group.name}>
-                {group.name}
-              </CardTitle>
-              <Badge variant='secondary'>{group.group_type}</Badge>
-            </div>
-            <CardDescription>
-              {group.project_name || t('Default project')}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className='text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 text-sm'>
-            <span>{t('Assets: {{count}}', { count: group.asset_count })}</span>
-            <span>
-              {t('Processing: {{count}}', {
-                count: group.processing_count,
-              })}
-            </span>
-            <span className={group.failed_count > 0 ? 'text-destructive' : ''}>
-              {t('Failed: {{count}}', { count: group.failed_count })}
-            </span>
-          </CardContent>
-        </Card>
-      ))}
+    <div className='flex h-full flex-col'>
+      <div className='flex items-center justify-between gap-2 px-1 pb-2'>
+        <strong className='text-sm font-semibold'>
+          {t('Asset Groups')}
+        </strong>
+        <div className='flex items-center gap-1'>
+          <Button
+            variant='default'
+            size='sm'
+            onClick={props.onCreateGroup}
+          >
+            {t('New Group')}
+          </Button>
+        </div>
+      </div>
+
+      <Tabs
+        value={props.groupType}
+        onValueChange={(value) =>
+          props.onGroupTypeChange(value as string)
+        }
+        className='gap-0'
+      >
+        <TabsList variant='line' className='w-full justify-start'>
+          <TabsTrigger value='AIGC'>
+            <Folder className='size-3.5' aria-hidden='true' />
+            {t('Virtual Assets')}
+          </TabsTrigger>
+          <TabsTrigger value='LivenessFace'>
+            <ScanFace className='size-3.5' aria-hidden='true' />
+            {t('Liveness Assets')}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      <div className='py-2'>
+        <Input
+          value={props.search}
+          onChange={(e) => props.onSearchChange(e.currentTarget.value)}
+          placeholder={t('Search asset groups')}
+          aria-label={t('Search asset groups')}
+        />
+      </div>
+
+      <div className='min-h-0 flex-1 overflow-y-auto'>
+        {filtered.length === 0 ? (
+          <div className='text-muted-foreground px-2 py-8 text-center text-sm'>
+            {t('No asset groups')}
+          </div>
+        ) : (
+          <div className='space-y-0.5'>
+            {filtered.map((group) => (
+              <button
+                key={group.id}
+                type='button'
+                onClick={() => props.onSelectGroup(group.id)}
+                className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors ${
+                  props.selectedGroupId === group.id
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                <Folder
+                  className='size-4 shrink-0 opacity-70'
+                  aria-hidden='true'
+                />
+                <span className='flex min-w-0 flex-1 flex-col'>
+                  <span
+                    className='truncate text-sm font-medium'
+                    title={group.name}
+                  >
+                    {group.name}
+                  </span>
+                  <span className='text-muted-foreground text-xs'>
+                    {t('{{count}} assets', { count: group.asset_count })}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

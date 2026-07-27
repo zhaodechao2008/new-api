@@ -63,6 +63,23 @@ func CreateAssetGroup(group *AssetGroup) error {
 	return DB.Create(group).Error
 }
 
+func UpdateAssetGroup(userID int, groupID int64, name, description string) error {
+	updates := map[string]interface{}{
+		"name":        name,
+		"description": description,
+	}
+	return DB.Model(&AssetGroup{}).
+		Where("user_id = ? AND id = ?", userID, groupID).
+		Updates(updates).Error
+}
+
+// UpdateAssetGroupProviderID replaces a temporary local ID with the real ecloud groupId.
+func UpdateAssetGroupProviderID(groupID int64, providerGroupID string) error {
+	return DB.Model(&AssetGroup{}).
+		Where("id = ?", groupID).
+		Update("provider_group_id", providerGroupID).Error
+}
+
 func UpdateAssetGroupCounts(groupID int64) error {
 	var total int64
 	var processing int64
