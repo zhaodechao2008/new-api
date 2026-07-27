@@ -76,16 +76,18 @@ import {
 } from '@/components/ui/tooltip'
 
 import {
-  createAssetByUrl,
   deleteAssetGroup,
   getAssetConfig,
   getAssetGroupDetails,
   getAssetGroups,
+  importAssetByUrl,
   listAssets,
   uploadAsset,
 } from './api'
+import AssetDetailModal from './components/asset-detail-modal'
 import AssetGroupFormModal from './components/asset-group-form-modal'
 import AssetGroupList from './components/asset-group-list'
+import LivenessSessionModal from './components/liveness-session-modal'
 import type { Asset, AssetGroup } from './types'
 
 const pageSize = 12
@@ -105,26 +107,44 @@ function getStatusBadge(status: string) {
 }
 
 function AssetPreview(props: { asset: Asset }) {
-  if (props.asset.asset_type === 'Image' && props.asset.url) {
+  const { asset } = props
+  if (asset.asset_type === 'Image' && asset.url) {
     return (
       <img
-        src={props.asset.url}
-        alt={props.asset.name}
-        className='aspect-square w-full bg-muted object-cover'
+        src={asset.url}
+        alt={asset.name}
+        className='aspect-[4/3] w-full bg-muted object-cover'
         loading='lazy'
+        draggable={false}
       />
+    )
+  }
+  if (asset.asset_type === 'Video' && asset.url) {
+    return (
+      <div className='relative aspect-[4/3] w-full bg-black'>
+        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+        <video
+          src={asset.url}
+          preload='metadata'
+          draggable={false}
+          className='h-full w-full object-cover'
+        />
+        <span className='pointer-events-none absolute inset-0 flex items-center justify-center'>
+          <span className='flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm'>
+            <Video className='size-4 fill-white' aria-hidden='true' />
+          </span>
+        </span>
+      </div>
     )
   }
 
   let icon = <ImageIcon className='size-8' aria-hidden='true' />
-  if (props.asset.asset_type === 'Video') {
-    icon = <Video className='size-8' aria-hidden='true' />
-  } else if (props.asset.asset_type === 'Audio') {
+  if (asset.asset_type === 'Audio') {
     icon = <Music className='size-8' aria-hidden='true' />
   }
 
   return (
-    <div className='text-muted-foreground flex aspect-square items-center justify-center bg-muted'>
+    <div className='text-muted-foreground flex aspect-[4/3] items-center justify-center bg-muted'>
       {icon}
     </div>
   )
@@ -147,10 +167,16 @@ export default function AssetsPage() {
     open: boolean
     group?: AssetGroup
   }>({ open: false })
+  const [livenessModal, setLivenessModal] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null)
   const [uploadMode, setUploadMode] = useState<'local' | 'url'>('local')
   const [urlInput, setUrlInput] = useState('')
+  const [urlName, setUrlName] = useState('')
+  const [urlAssetType, setUrlAssetType] = useState<'Image' | 'Video' | 'Audio'>('Image')
   const [dragOver, setDragOver] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [uploadingFileName, setUploadingFileName] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const groupsQuery = useQuery({
@@ -206,6 +232,8 @@ export default function AssetsPage() {
       setAssetType(allValue)
       setStatus(allValue)
       setUrlInput('')
+      setUrlName('')
+      setUrlAssetType('Image')
     },
     []
   )
@@ -215,7 +243,9 @@ export default function AssetsPage() {
   }, [queryClient])
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => uploadAsset(selectedGroupId as number, file),
+    mutationFn: (file: File) =>
+      uploadAsset(selectedGroupId as number, file, setUploadProgress),
+    onMutate: () => setUploadProgress(0),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['assets', 'group', selectedGroupId],
@@ -230,11 +260,14 @@ export default function AssetsPage() {
           : t('Failed to upload asset')
       )
     },
+    onSettled: () => {
+      setTimeout(() => setUploadProgress(null), 600)
+    },
   })
 
   const urlMutation = useMutation({
-    mutationFn: (url: string) =>
-      createAssetByUrl(selectedGroupId as number, { url }),
+    mutationFn: (vars: { url: string; name: string; asset_type: 'Image' | 'Video' | 'Audio' }) =>
+      importAssetByUrl(selectedGroupId as number, vars),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['assets', 'group', selectedGroupId],
@@ -242,6 +275,7 @@ export default function AssetsPage() {
       queryClient.invalidateQueries({ queryKey: ['assets', 'groups'] })
       toast.success(t('Asset imported successfully'))
       setUrlInput('')
+      setUrlName('')
     },
     onError: (error: unknown) => {
       toast.error(
@@ -273,6 +307,7 @@ export default function AssetsPage() {
 
   const handleFileSelect = (file: File | undefined) => {
     if (!file) return
+    setUploadingFileName(file.name.replace(/\.[^/.]+$/, ''))
     uploadMutation.mutate(file)
   }
 
@@ -348,8 +383,11 @@ export default function AssetsPage() {
                 search={groupSearch}
                 onSearchChange={setGroupSearch}
                 onCreateGroup={() => {
-                  console.log('[Assets] onCreateGroup clicked, setting open=true')
-                  setGroupFormModal({ open: true })
+                  if (groupType === 'LivenessFace') {
+                    setLivenessModal(true)
+                  } else {
+                    setGroupFormModal({ open: true })
+                  }
                 }}
               />
             </aside>
@@ -498,7 +536,15 @@ export default function AssetsPage() {
                     }}
                   >
                     <SelectTrigger className='h-8 w-[120px]' aria-label={t('Asset type')}>
-                      <SelectValue />
+                      <SelectValue>
+                        {(value: string) => {
+                          if (!value || value === allValue) return t('All types')
+                          if (value === 'Image') return t('Image')
+                          if (value === 'Video') return t('Video')
+                          if (value === 'Audio') return t('Audio')
+                          return value
+                        }}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={allValue}>{t('All types')}</SelectItem>
@@ -515,7 +561,15 @@ export default function AssetsPage() {
                     }}
                   >
                     <SelectTrigger className='h-8 w-[120px]' aria-label={t('Status')}>
-                      <SelectValue />
+                      <SelectValue>
+                        {(value: string) => {
+                          if (!value || value === allValue) return t('All statuses')
+                          if (value === 'Active') return t('Active')
+                          if (value === 'Processing') return t('Processing')
+                          if (value === 'Failed') return t('Failed')
+                          return value
+                        }}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={allValue}>{t('All statuses')}</SelectItem>
@@ -529,7 +583,13 @@ export default function AssetsPage() {
                     onValueChange={(value) => setSort(value ?? 'created_desc')}
                   >
                     <SelectTrigger className='h-8 w-[130px]' aria-label={t('Sort')}>
-                      <SelectValue />
+                      <SelectValue>
+                        {(value: string) =>
+                          value === 'created_asc'
+                            ? t('Oldest first')
+                            : t('Newest first')
+                        }
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value='created_desc'>
@@ -622,42 +682,129 @@ export default function AssetsPage() {
                         />
                       </div>
                       {uploadMutation.isPending && (
-                        <div className='mt-2 flex items-center gap-2 text-sm'>
-                          <Spinner className='size-4' />
-                          {t('Uploading...')}
+                        <div className='mt-2 space-y-1'>
+                          <div className='flex items-center justify-between text-xs'>
+                            <span className='text-muted-foreground max-w-[80%] truncate'>
+                              {uploadingFileName}
+                            </span>
+                            <span className='text-muted-foreground tabular-nums'>
+                              {uploadProgress !== null ? `${uploadProgress}%` : ''}
+                            </span>
+                          </div>
+                          <div className='h-1.5 w-full overflow-hidden rounded-full bg-muted'>
+                            <div
+                              className='h-full rounded-full bg-primary transition-[width] duration-200'
+                              style={{ width: `${uploadProgress ?? 0}%` }}
+                              role='progressbar'
+                              aria-valuenow={uploadProgress ?? 0}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                            />
+                          </div>
                         </div>
                       )}
                     </TabsContent>
                     <TabsContent value='url'>
-                      <div className='flex gap-2'>
-                        <Input
-                          value={urlInput}
-                          onChange={(e) =>
-                            setUrlInput(e.currentTarget.value)
-                          }
-                          placeholder='https://...'
-                          aria-label={t('Asset URL')}
-                          disabled={urlMutation.isPending}
-                        />
+                      <div className='space-y-2'>
+                        {/* URL input */}
+                        <div>
+                          <label className='text-muted-foreground mb-1 block text-xs'>
+                            {t('Public URL')}
+                          </label>
+                          <Input
+                            value={urlInput}
+                            onChange={(e) => {
+                              const val = e.currentTarget.value
+                              setUrlInput(val)
+                              // Auto-fill name from URL path when name is empty / unchanged
+                              if (val.trim()) {
+                                try {
+                                  const pathname = new URL(val.trim()).pathname
+                                  const base = pathname.split('/').filter(Boolean).pop() ?? ''
+                                  const nameFromUrl = base.replace(/\.[^/.]+$/, '')
+                                  if (nameFromUrl) setUrlName(nameFromUrl)
+                                } catch {
+                                  // not a valid URL yet
+                                }
+                              }
+                            }}
+                            placeholder='https://example.com/image.png'
+                            aria-label={t('Asset URL')}
+                            disabled={urlMutation.isPending}
+                          />
+                        </div>
+
+                        {/* Name + Asset Type row */}
+                        <div className='flex gap-2'>
+                          <div className='flex-1'>
+                            <label className='text-muted-foreground mb-1 block text-xs'>
+                              {t('名称')}
+                            </label>
+                            <Input
+                              value={urlName}
+                              onChange={(e) => setUrlName(e.currentTarget.value)}
+                              placeholder={t('素材名称')}
+                              aria-label={t('名称')}
+                              disabled={urlMutation.isPending}
+                            />
+                          </div>
+                          <div className='w-28'>
+                            <label className='text-muted-foreground mb-1 block text-xs'>
+                              {t('素材类型')}
+                            </label>
+                            <Select
+                              value={urlAssetType}
+                              onValueChange={(v) =>
+                                setUrlAssetType(v as 'Image' | 'Video' | 'Audio')
+                              }
+                            >
+                              <SelectTrigger
+                                className='h-9 w-full'
+                                aria-label={t('素材类型')}
+                                disabled={urlMutation.isPending}
+                              >
+                                <SelectValue>
+                                  {(v: string) => {
+                                    if (v === 'Image') return t('图片')
+                                    if (v === 'Video') return t('视频')
+                                    if (v === 'Audio') return t('音频')
+                                    return v
+                                  }}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value='Image'>{t('图片')}</SelectItem>
+                                <SelectItem value='Video'>{t('视频')}</SelectItem>
+                                <SelectItem value='Audio'>{t('音频')}</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        {/* Import button */}
                         <Button
+                          className='w-full'
                           onClick={() => {
-                            if (!urlInput.trim()) {
+                            const url = urlInput.trim()
+                            const name = urlName.trim()
+                            if (!url) {
                               toast.error(t('Please enter a URL'))
                               return
                             }
-                            urlMutation.mutate(urlInput.trim())
+                            if (!name) {
+                              toast.error(t('请输入素材名称'))
+                              return
+                            }
+                            urlMutation.mutate({ url, name, asset_type: urlAssetType })
                           }}
-                          disabled={urlMutation.isPending || !urlInput.trim()}
+                          disabled={urlMutation.isPending || !urlInput.trim() || !urlName.trim()}
                         >
                           {urlMutation.isPending ? (
                             <Spinner className='size-4' />
                           ) : null}
-                          {t('Import')}
+                          {t('导入')}
                         </Button>
                       </div>
-                      <p className='text-muted-foreground mt-1.5 text-xs'>
-                        {t('Enter a publicly accessible URL for the asset')}
-                      </p>
                     </TabsContent>
                   </Tabs>
                 </div>
@@ -700,7 +847,17 @@ export default function AssetsPage() {
                       {assets.map((asset) => (
                         <div
                           key={asset.id}
-                          className='group overflow-hidden rounded-lg border transition-shadow hover:shadow-md'
+                          role='button'
+                          tabIndex={0}
+                          aria-label={asset.name}
+                          onClick={() => setSelectedAsset(asset)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setSelectedAsset(asset)
+                            }
+                          }}
+                          className='group cursor-pointer overflow-hidden rounded-lg border transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
                         >
                           <div className='relative'>
                             <AssetPreview asset={asset} />
@@ -832,6 +989,37 @@ export default function AssetsPage() {
       group={groupFormModal.group}
       defaultGroupType={groupType}
     />
+
+    <LivenessSessionModal
+      open={livenessModal}
+      onClose={() => setLivenessModal(false)}
+      onSynced={(group) => {
+        setLivenessModal(false)
+        queryClient.invalidateQueries({ queryKey: ['assets', 'groups'] })
+        if (group) setSelectedGroupId(group.id)
+      }}
+    />
+
+    {selectedAsset && (
+      <AssetDetailModal
+        asset={selectedAsset}
+        groupId={selectedGroupId as number}
+        onClose={() => setSelectedAsset(null)}
+        onDeleted={() => {
+          setSelectedAsset(null)
+          queryClient.invalidateQueries({
+            queryKey: ['assets', 'group', selectedGroupId],
+          })
+          queryClient.invalidateQueries({ queryKey: ['assets', 'groups'] })
+        }}
+        onUpdated={(updated) => {
+          setSelectedAsset(updated)
+          queryClient.invalidateQueries({
+            queryKey: ['assets', 'group', selectedGroupId],
+          })
+        }}
+      />
+    )}
 
     {/* Delete confirmation dialog */}
     <Dialog

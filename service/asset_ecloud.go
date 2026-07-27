@@ -28,6 +28,7 @@ type ECloudGroup struct {
 	GroupType         string `json:"groupType"`
 	OriginalGroupName string `json:"originalGroupName"`
 	CoverURL          string `json:"coverUrl"`
+	CreatedTime       int64  `json:"createdTime"`
 }
 
 type ECloudGroupDetail struct {
@@ -203,6 +204,88 @@ func (s *AssetService) ImportURL(assetURL, assetType, displayName string) (*EClo
 	return &detail, nil
 }
 
+// LivenessSession represents the response from the liveness session API.
+type LivenessSession struct {
+	ByteDanceToken string `json:"bytedToken"`
+	ExpiresAt     string `json:"expiresAt"`
+	ExpiresIn     int    `json:"expiresIn"`
+	H5Link        string `json:"h5Link"`
+	QrDataUrl     string `json:"qrDataUrl"`
+}
+
+// CreateLivenessSession creates a liveness authorization session via ecloud.
+func (s *AssetService) CreateLivenessSession() (*LivenessSession, error) {
+	if s.BaseURL == "" || s.APIKey == "" {
+		return nil, fmt.Errorf("ecloud not configured")
+	}
+
+	req, err := http.NewRequest("POST", s.BaseURL+"/api/video-studio/assets/ecloud/liveness/sessions", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.APIKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ecloud liveness session failed: %d %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var ecloudResp ECloudResponse
+	if err := json.NewDecoder(resp.Body).Decode(&ecloudResp); err != nil {
+		return nil, err
+	}
+
+	var session LivenessSession
+	if err := json.Unmarshal(ecloudResp.Data, &session); err != nil {
+		return nil, err
+	}
+
+	return &session, nil
+}
+
+// SyncLivenessGroups syncs liveness groups from ecloud and returns the synced group.
+func (s *AssetService) SyncLivenessGroups() (*ECloudGroup, error) {
+	if s.BaseURL == "" || s.APIKey == "" {
+		return nil, fmt.Errorf("ecloud not configured")
+	}
+
+	req, err := http.NewRequest("POST", s.BaseURL+"/api/video-studio/assets/ecloud/liveness/groups/sync", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.APIKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ecloud liveness sync failed: %d %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var ecloudResp ECloudResponse
+	if err := json.NewDecoder(resp.Body).Decode(&ecloudResp); err != nil {
+		return nil, err
+	}
+
+	var group ECloudGroup
+	if err := json.Unmarshal(ecloudResp.Data, &group); err != nil {
+		return nil, err
+	}
+	return &group, nil
+}
+
 // GetGroup fetches group details from ecloud
 func (s *AssetService) GetGroup(groupID string) (*ECloudGroupDetail, error) {
 	if s.BaseURL == "" || s.APIKey == "" {
@@ -239,6 +322,63 @@ func (s *AssetService) GetGroup(groupID string) (*ECloudGroupDetail, error) {
 	}
 
 	return &detail, nil
+}
+
+// DeleteAsset deletes a single asset from ecloud.
+func (s *AssetService) DeleteAsset(groupID, assetID string) error {
+	if s.BaseURL == "" || s.APIKey == "" {
+		return fmt.Errorf("ecloud not configured")
+	}
+
+	url := fmt.Sprintf("%s/api/video-studio/assets/ecloud/%s/assets/%s", s.BaseURL, groupID, assetID)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.APIKey)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("ecloud delete asset failed: %d %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
+}
+
+// RenameAsset renames a single asset in ecloud. Best-effort: the endpoint may
+// not be available on all deployments; callers should log but not surface the error.
+func (s *AssetService) RenameAsset(groupID, assetID, displayName string) error {
+	if s.BaseURL == "" || s.APIKey == "" {
+		return fmt.Errorf("ecloud not configured")
+	}
+
+	reqBody, _ := json.Marshal(map[string]string{"displayName": displayName})
+	url := fmt.Sprintf("%s/api/video-studio/assets/ecloud/%s/assets/%s", s.BaseURL, groupID, assetID)
+	req, err := http.NewRequest("PATCH", url, bytes.NewReader(reqBody))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("ecloud rename asset failed: %d %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
 }
 
 // DeleteGroup deletes a group from ecloud

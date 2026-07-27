@@ -102,3 +102,15 @@ export interface CreateAssetResponse {
   success: boolean
   data: Asset
 }
+
+export interface UpdateAssetRequest {
+  name: string
+}
+
+export interface UpdateAssetResponse {
+  success: boolean
+}
+
+export interface DeleteAssetResponse {
+  success: boolean
+}

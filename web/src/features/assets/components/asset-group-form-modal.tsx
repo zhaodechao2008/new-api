@@ -154,7 +154,13 @@ export default function AssetGroupFormModal(
                 onValueChange={(value) => setGroupType(value || 'AIGC')}
               >
                 <SelectTrigger id='group-type'>
-                  <SelectValue />
+                  <SelectValue>
+                    {(value: string) =>
+                      value === 'LivenessFace'
+                        ? t('Liveness Assets')
+                        : t('Virtual Assets')
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value='AIGC'>{t('Virtual Assets')}</SelectItem>

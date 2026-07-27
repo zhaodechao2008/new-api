@@ -63,6 +63,26 @@ func CreateAssetGroup(group *AssetGroup) error {
 	return DB.Create(group).Error
 }
 
+// UpsertAssetGroup creates or updates an asset group by provider_group_id.
+// Updates name and description if already exists.
+func UpsertAssetGroup(group *AssetGroup) error {
+	var existing AssetGroup
+	err := DB.Where("user_id = ? AND provider_group_id = ?", group.UserID, group.ProviderGroupID).First(&existing).Error
+	if err == nil {
+		// Exists — update fields
+		updates := map[string]interface{}{
+			"name":        group.Name,
+			"description": group.Description,
+			"updated_time": group.UpdatedTime,
+		}
+		return DB.Model(&AssetGroup{}).Where("id = ?", existing.ID).Updates(updates).Error
+	}
+	if err == gorm.ErrRecordNotFound {
+		return DB.Create(group).Error
+	}
+	return err
+}
+
 func UpdateAssetGroup(userID int, groupID int64, name, description string) error {
 	updates := map[string]interface{}{
 		"name":        name,
@@ -140,6 +160,28 @@ func GetAssetGroup(userID int, groupID int64) (*AssetGroup, error) {
 	var group AssetGroup
 	err := DB.Where("user_id = ? AND id = ?", userID, groupID).First(&group).Error
 	return &group, err
+}
+
+func GetAssetByID(userID int, assetID int64) (*Asset, error) {
+	var asset Asset
+	err := DB.Where("user_id = ? AND id = ?", userID, assetID).First(&asset).Error
+	return &asset, err
+}
+
+func UpdateAssetName(userID int, assetID int64, name string) error {
+	return DB.Model(&Asset{}).
+		Where("user_id = ? AND id = ?", userID, assetID).
+		Updates(map[string]interface{}{
+			"name": name,
+		}).Error
+}
+
+func DeleteAsset(userID int, groupID, assetID int64) error {
+	res := DB.Where("user_id = ? AND asset_group_id = ? AND id = ?", userID, groupID, assetID).Delete(&Asset{})
+	if res.Error != nil {
+		return res.Error
+	}
+	return UpdateAssetGroupCounts(groupID)
 }
 
 func ListAssets(userID int, groupID int64, params AssetListParams) ([]Asset, int64, error) {

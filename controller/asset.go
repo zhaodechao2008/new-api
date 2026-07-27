@@ -233,6 +233,83 @@ func DeleteAssetGroup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+func UpdateAsset(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("group_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid group_id"})
+		return
+	}
+	assetID, err := strconv.ParseInt(c.Param("asset_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid asset_id"})
+		return
+	}
+	var req struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "name is required"})
+		return
+	}
+
+	userID := c.GetInt("id")
+
+	// Sync rename to ecloud (best-effort: non-fatal on failure).
+	asset, assetErr := model.GetAssetByID(userID, assetID)
+	if assetErr == nil && asset.ProviderAssetID != "" {
+		group, groupErr := model.GetAssetGroup(userID, groupID)
+		if groupErr == nil && strings.HasPrefix(group.ProviderGroupID, "group-") {
+			svc := ecloudSvc()
+			if svcErr := svc.RenameAsset(group.ProviderGroupID, asset.ProviderAssetID, name); svcErr != nil {
+				common.SysError(fmt.Sprintf("ecloud RenameAsset %s/%s: %v", group.ProviderGroupID, asset.ProviderAssetID, svcErr))
+			}
+		}
+	}
+
+	if err := model.UpdateAssetName(userID, assetID, name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func DeleteAsset(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("group_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid group_id"})
+		return
+	}
+	assetID, err := strconv.ParseInt(c.Param("asset_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid asset_id"})
+		return
+	}
+	userID := c.GetInt("id")
+
+	// Sync delete to ecloud before removing locally.
+	asset, assetErr := model.GetAssetByID(userID, assetID)
+	if assetErr == nil && asset.ProviderAssetID != "" {
+		group, groupErr := model.GetAssetGroup(userID, groupID)
+		if groupErr == nil && strings.HasPrefix(group.ProviderGroupID, "group-") {
+			svc := ecloudSvc()
+			if svcErr := svc.DeleteAsset(group.ProviderGroupID, asset.ProviderAssetID); svcErr != nil {
+				common.SysError(fmt.Sprintf("ecloud DeleteAsset %s/%s: %v", group.ProviderGroupID, asset.ProviderAssetID, svcErr))
+			}
+		}
+	}
+
+	if err := model.DeleteAsset(userID, groupID, assetID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 // CreateAsset handles both multipart file upload and JSON URL import.
 func CreateAsset(c *gin.Context) {
 	groupID, err := strconv.ParseInt(c.Param("group_id"), 10, 64)
@@ -383,6 +460,87 @@ func createURLAsset(c *gin.Context, userID int, group *model.AssetGroup) (*model
 		CreatedTime:     now,
 		UpdatedTime:     now,
 	}, nil
+}
+
+// ImportURLAsset handles POST /api/assets/groups/:group_id/upload-url.
+// Body: {"url":"...","name":"...","asset_type":"Image|Video|Audio"}
+// Calls ecloud /api/video-studio/assets/ecloud/import-url and saves locally.
+func ImportURLAsset(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("group_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid group_id"})
+		return
+	}
+	userID := c.GetInt("id")
+	group, err := model.GetAssetGroup(userID, groupID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "asset group not found"})
+		return
+	}
+	asset, err := createURLAsset(c, userID, group)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	if err := model.CreateAsset(asset); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": asset})
+}
+
+// CreateLivenessSession handles POST /api/assets/liveness/sessions.
+// Calls ecloud /api/video-studio/assets/ecloud/liveness/sessions.
+func CreateLivenessSession(c *gin.Context) {
+	svc := ecloudSvc()
+	session, err := svc.CreateLivenessSession()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"bytedToken": session.ByteDanceToken,
+			"expiresAt":  session.ExpiresAt,
+			"expiresIn": session.ExpiresIn,
+			"h5Link":   session.H5Link,
+			"qrDataUrl": session.QrDataUrl,
+		},
+	})
+}
+
+// SyncLivenessGroups handles POST /api/assets/liveness/groups/sync.
+// Calls ecloud /api/video-studio/assets/ecloud/liveness/groups/sync and saves the result locally.
+func SyncLivenessGroups(c *gin.Context) {
+	userID := c.GetInt("id")
+	svc := ecloudSvc()
+	ecloudGroup, err := svc.SyncLivenessGroups()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	createdTime := common.GetTimestamp()
+	if ecloudGroup.CreatedTime > 0 {
+		createdTime = ecloudGroup.CreatedTime
+	}
+	now := common.GetTimestamp()
+	group := &model.AssetGroup{
+		UserID:          userID,
+		ProviderGroupID: ecloudGroup.GroupID,
+		Name:            ecloudGroup.DisplayName,
+		Description:     "",
+		GroupType:       "LivenessFace",
+		ProjectName:     "default",
+		CreatedTime:     createdTime,
+		UpdatedTime:     now,
+	}
+	if err := model.UpsertAssetGroup(group); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": group})
 }
 
 func assetTypeFromExtension(extension string) string {
