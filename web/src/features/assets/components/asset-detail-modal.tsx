@@ -17,6 +17,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 
 import { deleteAsset, updateAsset } from '../api'
+import { statusBadgeClass, statusLabel } from '../status'
 import type { Asset } from '../types'
 
 interface AssetDetailModalProps {
@@ -239,8 +240,8 @@ export default function AssetDetailModal({
                     {asset.name}
                   </h4>
                 )}
-                <Badge variant='outline' className='mt-1'>
-                  {t(asset.status)}
+                <Badge className={`mt-1 ${statusBadgeClass(asset.status)}`}>
+                  {statusLabel(asset.status, t)}
                 </Badge>
               </div>
               {!editingName && (

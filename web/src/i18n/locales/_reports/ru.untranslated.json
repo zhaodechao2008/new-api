@@ -1,4 +1,7 @@
 {
+  "可用": "Available",
+  "处理中": "Processing",
+  "失败": "Failed",
   "All statuses": "All statuses",
   "All types": "All types",
   "Asset Group": "Asset Group",

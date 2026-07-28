@@ -117,13 +117,10 @@ export default function AssetGroupFormModal(
     }
   }
 
-  console.log('[AssetGroupFormModal] render, isOpen=', props.isOpen)
-
   return (
     <Dialog
       open={props.isOpen}
       onOpenChange={(open) => {
-        console.log('[AssetGroupFormModal] onOpenChange', open)
         if (!open) props.onClose()
       }}
     >
@@ -152,6 +149,7 @@ export default function AssetGroupFormModal(
               <Select
                 value={groupType}
                 onValueChange={(value) => setGroupType(value || 'AIGC')}
+                disabled
               >
                 <SelectTrigger id='group-type'>
                   <SelectValue>

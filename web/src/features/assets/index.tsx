@@ -88,6 +88,7 @@ import AssetDetailModal from './components/asset-detail-modal'
 import AssetGroupFormModal from './components/asset-group-form-modal'
 import AssetGroupList from './components/asset-group-list'
 import LivenessSessionModal from './components/liveness-session-modal'
+import { statusBadgeClass, statusLabel } from './status'
 import type { Asset, AssetGroup } from './types'
 
 const pageSize = 12
@@ -135,11 +136,6 @@ function formatBytes(size: number) {
   return `${(size / 1024 / 1024 / 1024).toFixed(1)} GB`
 }
 
-function getStatusBadge(status: string) {
-  if (status === 'Failed') return 'destructive' as const
-  if (status === 'Processing') return 'secondary' as const
-  return 'outline' as const
-}
 
 function AssetPreview(props: { asset: Asset }) {
   const { asset } = props
@@ -599,18 +595,15 @@ export default function AssetsPage() {
                       <SelectValue>
                         {(value: string) => {
                           if (!value || value === allValue) return t('All statuses')
-                          if (value === 'Active') return t('Active')
-                          if (value === 'Processing') return t('Processing')
-                          if (value === 'Failed') return t('Failed')
-                          return value
+                          return statusLabel(value, t)
                         }}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={allValue}>{t('All statuses')}</SelectItem>
-                      <SelectItem value='Active'>{t('Active')}</SelectItem>
-                      <SelectItem value='Processing'>{t('Processing')}</SelectItem>
-                      <SelectItem value='Failed'>{t('Failed')}</SelectItem>
+                      <SelectItem value='Active'>{statusLabel('Active', t)}</SelectItem>
+                      <SelectItem value='Processing'>{statusLabel('Processing', t)}</SelectItem>
+                      <SelectItem value='Failed'>{statusLabel('Failed', t)}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select
@@ -884,7 +877,7 @@ export default function AssetsPage() {
                     )}
 
                   {!assetsQuery.isLoading && assets.length > 0 && (
-                    <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'>
+                    <div className='grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7'>
                       {assets.map((asset) => (
                         <div
                           key={asset.id}
@@ -950,8 +943,8 @@ export default function AssetsPage() {
                               {asset.name}
                             </p>
                             <div className='flex items-center gap-1.5'>
-                              <Badge variant={getStatusBadge(asset.status)}>
-                                {t(asset.status)}
+                              <Badge className={statusBadgeClass(asset.status)}>
+                                {statusLabel(asset.status, t)}
                               </Badge>
                               <span className='text-muted-foreground text-xs'>
                                 {t(asset.asset_type)}
