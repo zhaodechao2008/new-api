@@ -1,6 +1,9 @@
 package model
 
-import "gorm.io/gorm"
+import (
+	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm"
+)
 
 // AssetGroup 素材分组。
 type AssetGroup struct {
@@ -64,18 +67,32 @@ func CreateAssetGroup(group *AssetGroup) error {
 }
 
 // UpsertAssetGroup creates or updates an asset group by provider_group_id.
-// Updates name and description if already exists.
+// Updates name and description if already exists. Uses Unscoped so a previously
+// soft-deleted row with the same (user_id, provider_group_id) is revived instead
+// of triggering a unique-constraint violation on the underlying index.
 func UpsertAssetGroup(group *AssetGroup) error {
 	var existing AssetGroup
-	err := DB.Where("user_id = ? AND provider_group_id = ?", group.UserID, group.ProviderGroupID).First(&existing).Error
+	err := DB.Unscoped().
+		Where("user_id = ? AND provider_group_id = ?", group.UserID, group.ProviderGroupID).
+		First(&existing).Error
 	if err == nil {
-		// Exists — update fields
+		// Exists (possibly soft-deleted) — update fields and clear deleted_at.
 		updates := map[string]interface{}{
-			"name":        group.Name,
-			"description": group.Description,
+			"name":         group.Name,
+			"description":  group.Description,
+			"group_type":   group.GroupType,
 			"updated_time": group.UpdatedTime,
+			"deleted_at":   nil,
 		}
-		return DB.Model(&AssetGroup{}).Where("id = ?", existing.ID).Updates(updates).Error
+		if err := DB.Unscoped().Model(&AssetGroup{}).
+			Where("id = ?", existing.ID).
+			Updates(updates).Error; err != nil {
+			return err
+		}
+		// Reflect the persisted identity back to the caller.
+		group.ID = existing.ID
+		group.CreatedTime = existing.CreatedTime
+		return nil
 	}
 	if err == gorm.ErrRecordNotFound {
 		return DB.Create(group).Error
@@ -120,11 +137,40 @@ func UpdateAssetGroupCounts(groupID int64) error {
 	}).Error
 }
 
+// UpdateAssetStatusAndURL updates a single asset's status and URL by provider_asset_id.
+// Used when syncing processing state back from ecloud after async processing completes.
+func UpdateAssetStatusAndURL(providerAssetID, status, url string) error {
+	return DB.Model(&Asset{}).
+		Where("provider_asset_id = ?", providerAssetID).
+		Updates(map[string]interface{}{
+			"status":       status,
+			"url":          url,
+			"updated_time": common.GetTimestamp(),
+		}).Error
+}
+
 func CreateAsset(asset *Asset) error {
 	if err := DB.Create(asset).Error; err != nil {
 		return err
 	}
 	return UpdateAssetGroupCounts(asset.AssetGroupID)
+}
+
+// GetLivenessGroupProviderIDs returns the set of provider_group_id values already known
+// locally for the given user's LivenessFace groups. Used to identify newly synced groups.
+func GetLivenessGroupProviderIDs(userID int) (map[string]struct{}, error) {
+	var ids []string
+	err := DB.Model(&AssetGroup{}).
+		Where("user_id = ? AND group_type = ?", userID, "LivenessFace").
+		Pluck("provider_group_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	return set, nil
 }
 
 func DeleteAssetGroup(userID int, groupID int64) error {

@@ -31,6 +31,27 @@ type ECloudGroup struct {
 	CreatedTime       int64  `json:"createdTime"`
 }
 
+// ECloudLivenessGroup is the group shape returned by the liveness/groups/sync endpoint.
+// It differs from ECloudGroup: timestamps are strings ("createdAt"/"updatedAt") and
+// the cover asset ID is included.
+type ECloudLivenessGroup struct {
+	GroupID           string `json:"groupId"`
+	DisplayName       string `json:"displayName"`
+	GroupType         string `json:"groupType"`
+	OriginalGroupName string `json:"originalGroupName"`
+	CoverAssetID      string `json:"coverAssetId"`
+	CoverURL          string `json:"coverUrl"`
+	CreatedAt         string `json:"createdAt"`
+	UpdatedAt         string `json:"updatedAt"`
+}
+
+// ECloudLivenessSyncResult is the data payload returned by liveness/groups/sync.
+type ECloudLivenessSyncResult struct {
+	Groups    []ECloudLivenessGroup `json:"groups"`
+	TotalSize int                   `json:"totalSize"`
+	SyncedAt  string                `json:"syncedAt"`
+}
+
 type ECloudGroupDetail struct {
 	Group     ECloudGroup   `json:"group"`
 	Assets    []ECloudAsset `json:"assets"`
@@ -250,17 +271,29 @@ func (s *AssetService) CreateLivenessSession() (*LivenessSession, error) {
 	return &session, nil
 }
 
-// SyncLivenessGroups syncs liveness groups from ecloud and returns the synced group.
-func (s *AssetService) SyncLivenessGroups() (*ECloudGroup, error) {
+// SyncLivenessGroups syncs all liveness groups from ecloud and returns the full result.
+// bytedToken is the token returned by CreateLivenessSession; passing it causes ecloud to
+// register the just-completed face-verification session so its new group appears in the list.
+// It may be empty for a plain refresh without associating a session.
+func (s *AssetService) SyncLivenessGroups(bytedToken string) (*ECloudLivenessSyncResult, error) {
 	if s.BaseURL == "" || s.APIKey == "" {
 		return nil, fmt.Errorf("ecloud not configured")
 	}
 
-	req, err := http.NewRequest("POST", s.BaseURL+"/api/video-studio/assets/ecloud/liveness/groups/sync", nil)
+	var body io.Reader
+	if bytedToken != "" {
+		payload, _ := json.Marshal(map[string]string{"bytedToken": bytedToken})
+		body = bytes.NewReader(payload)
+	}
+
+	req, err := http.NewRequest("POST", s.BaseURL+"/api/video-studio/assets/ecloud/liveness/groups/sync", body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+s.APIKey)
+	if bytedToken != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -279,11 +312,11 @@ func (s *AssetService) SyncLivenessGroups() (*ECloudGroup, error) {
 		return nil, err
 	}
 
-	var group ECloudGroup
-	if err := json.Unmarshal(ecloudResp.Data, &group); err != nil {
+	var result ECloudLivenessSyncResult
+	if err := json.Unmarshal(ecloudResp.Data, &result); err != nil {
 		return nil, err
 	}
-	return &group, nil
+	return &result, nil
 }
 
 // GetGroup fetches group details from ecloud

@@ -93,6 +93,41 @@ import type { Asset, AssetGroup } from './types'
 const pageSize = 12
 const allValue = 'all'
 
+// assetTypeFromUrl detects the asset type from a filename/URL extension.
+// Supported: .jpg .jpeg .png .webp -> Image; .mp4 .mov -> Video; .mp3 .wav -> Audio.
+function assetTypeFromUrl(
+  nameOrUrl: string
+): 'Image' | 'Video' | 'Audio' | null {
+  const match = nameOrUrl.toLowerCase().match(/\.([a-z0-9]+)(?:[?#].*)?$/)
+  const ext = match?.[1] ?? ''
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+    case 'png':
+    case 'webp':
+      return 'Image'
+    case 'mp4':
+    case 'mov':
+      return 'Video'
+    case 'mp3':
+    case 'wav':
+      return 'Audio'
+    default:
+      return null
+  }
+}
+
+// assetTypeLabel maps an asset type code to its localized label.
+function assetTypeLabel(
+  type: 'Image' | 'Video' | 'Audio' | string,
+  t: (key: string) => string
+): string {
+  if (type === 'Image') return t('图片')
+  if (type === 'Video') return t('视频')
+  if (type === 'Audio') return t('音频')
+  return type
+}
+
 function formatBytes(size: number) {
   if (size < 1024) return `${size} B`
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
@@ -705,8 +740,25 @@ export default function AssetsPage() {
                       )}
                     </TabsContent>
                     <TabsContent value='url'>
-                      <div className='space-y-2'>
-                        {/* URL input */}
+                      <div className='space-y-3'>
+                        {/* Header: icon + title + supported formats */}
+                        <div className='flex items-start gap-3'>
+                          <span className='text-muted-foreground mt-0.5 shrink-0'>
+                            <Link2 className='size-7' aria-hidden='true' />
+                          </span>
+                          <div className='min-w-0'>
+                            <strong className='block text-sm'>
+                              {t('通过公网 Public URL 导入素材')}
+                            </strong>
+                            <small className='text-muted-foreground block text-xs'>
+                              {t(
+                                '.jpg、.jpeg、.png、.webp、.mp4、.mov、.mp3、.wav · 需公网可访问 · 每次 1 个'
+                              )}
+                            </small>
+                          </div>
+                        </div>
+
+                        {/* Public URL (full width) */}
                         <div>
                           <label className='text-muted-foreground mb-1 block text-xs'>
                             {t('Public URL')}
@@ -716,94 +768,82 @@ export default function AssetsPage() {
                             onChange={(e) => {
                               const val = e.currentTarget.value
                               setUrlInput(val)
-                              // Auto-fill name from URL path when name is empty / unchanged
+                              // Auto-fill name + asset type from URL path when possible
                               if (val.trim()) {
                                 try {
                                   const pathname = new URL(val.trim()).pathname
                                   const base = pathname.split('/').filter(Boolean).pop() ?? ''
                                   const nameFromUrl = base.replace(/\.[^/.]+$/, '')
                                   if (nameFromUrl) setUrlName(nameFromUrl)
+                                  const detected = assetTypeFromUrl(base)
+                                  if (detected) setUrlAssetType(detected)
                                 } catch {
                                   // not a valid URL yet
                                 }
                               }
                             }}
                             placeholder='https://example.com/image.png'
-                            aria-label={t('Asset URL')}
+                            aria-label={t('Public URL')}
                             disabled={urlMutation.isPending}
                           />
                         </div>
 
-                        {/* Name + Asset Type row */}
+                        {/* Name + Asset Type (read-only, auto-detected) row */}
                         <div className='flex gap-2'>
                           <div className='flex-1'>
                             <label className='text-muted-foreground mb-1 block text-xs'>
-                              {t('名称')}
+                              {t('素材名称')}
                             </label>
                             <Input
                               value={urlName}
                               onChange={(e) => setUrlName(e.currentTarget.value)}
-                              placeholder={t('素材名称')}
-                              aria-label={t('名称')}
+                              placeholder={t('将根据 URL 自动填充，可修改')}
+                              maxLength={64}
+                              aria-label={t('素材名称')}
                               disabled={urlMutation.isPending}
                             />
                           </div>
-                          <div className='w-28'>
+                          <div className='w-32'>
                             <label className='text-muted-foreground mb-1 block text-xs'>
                               {t('素材类型')}
                             </label>
-                            <Select
-                              value={urlAssetType}
-                              onValueChange={(v) =>
-                                setUrlAssetType(v as 'Image' | 'Video' | 'Audio')
-                              }
-                            >
-                              <SelectTrigger
-                                className='h-9 w-full'
-                                aria-label={t('素材类型')}
-                                disabled={urlMutation.isPending}
-                              >
-                                <SelectValue>
-                                  {(v: string) => {
-                                    if (v === 'Image') return t('图片')
-                                    if (v === 'Video') return t('视频')
-                                    if (v === 'Audio') return t('音频')
-                                    return v
-                                  }}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value='Image'>{t('图片')}</SelectItem>
-                                <SelectItem value='Video'>{t('视频')}</SelectItem>
-                                <SelectItem value='Audio'>{t('音频')}</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            <div className='border-input bg-muted/40 text-muted-foreground flex h-9 items-center rounded-md border px-3 text-sm'>
+                              {urlInput.trim() && assetTypeFromUrl(urlInput.trim())
+                                ? assetTypeLabel(urlAssetType, t)
+                                : t('粘贴 URL 后自动识别')}
+                            </div>
                           </div>
                         </div>
 
-                        {/* Import button */}
-                        <Button
-                          className='w-full'
-                          onClick={() => {
-                            const url = urlInput.trim()
-                            const name = urlName.trim()
-                            if (!url) {
-                              toast.error(t('Please enter a URL'))
-                              return
+                        {/* Actions: hint + submit */}
+                        <div className='flex items-center justify-between gap-3'>
+                          <span className='text-muted-foreground text-xs'>
+                            {t('后台将直接抓取该公网地址，无需本地下载')}
+                          </span>
+                          <Button
+                            onClick={() => {
+                              const url = urlInput.trim()
+                              const name = urlName.trim()
+                              if (!url) {
+                                toast.error(t('Please enter a URL'))
+                                return
+                              }
+                              if (!name) {
+                                toast.error(t('请输入素材名称'))
+                                return
+                              }
+                              urlMutation.mutate({ url, name, asset_type: urlAssetType })
+                            }}
+                            disabled={
+                              urlMutation.isPending || !urlInput.trim() || !urlName.trim()
                             }
-                            if (!name) {
-                              toast.error(t('请输入素材名称'))
-                              return
-                            }
-                            urlMutation.mutate({ url, name, asset_type: urlAssetType })
-                          }}
-                          disabled={urlMutation.isPending || !urlInput.trim() || !urlName.trim()}
-                        >
-                          {urlMutation.isPending ? (
-                            <Spinner className='size-4' />
-                          ) : null}
-                          {t('导入')}
-                        </Button>
+                          >
+                            {urlMutation.isPending ? (
+                              <Spinner className='size-4' />
+                            ) : null}
+                            {t('提交 URL')}
+                          </Button>
+                        </div>
                       </div>
                     </TabsContent>
                   </Tabs>
@@ -993,10 +1033,11 @@ export default function AssetsPage() {
     <LivenessSessionModal
       open={livenessModal}
       onClose={() => setLivenessModal(false)}
-      onSynced={(group) => {
+      onSynced={(groups, newGroups) => {
         setLivenessModal(false)
         queryClient.invalidateQueries({ queryKey: ['assets', 'groups'] })
-        if (group) setSelectedGroupId(group.id)
+        if (newGroups.length > 0) setSelectedGroupId(newGroups[0].id)
+        else if (groups.length > 0) setSelectedGroupId(groups[0].id)
       }}
     />
 

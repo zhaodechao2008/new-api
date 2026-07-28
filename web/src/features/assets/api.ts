@@ -101,11 +101,10 @@ export async function uploadAsset(
   file: File,
   onUploadProgress?: (progress: number) => void
 ): Promise<Asset> {
-  // Strip extension so the stored asset name is clean
-  const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '')
-  const renamedFile = new File([file], nameWithoutExt, { type: file.type })
+  // Keep the original filename (with extension) so the backend can detect the
+  // asset type from it. The backend strips the extension when storing the name.
   const formData = new FormData()
-  formData.append('file', renamedFile)
+  formData.append('file', file)
   const res = await api.post<CreateAssetResponse>(
     `/api/assets/groups/${groupId}/upload`,
     formData,
@@ -185,9 +184,14 @@ export async function createLivenessSession(): Promise<LivenessSessionResponse['
   return res.data.data
 }
 
-export async function syncLivenessGroups(): Promise<AssetGroup | null> {
-  const res = await api.post<{ success: boolean; data: AssetGroup }>(
-    '/api/assets/liveness/groups/sync'
-  )
+export async function syncLivenessGroups(bytedToken?: string): Promise<{
+  groups: AssetGroup[]
+  new_groups: AssetGroup[]
+  total: number
+} | null> {
+  const res = await api.post<{
+    success: boolean
+    data: { groups: AssetGroup[]; new_groups: AssetGroup[]; total: number }
+  }>('/api/assets/liveness/groups/sync', bytedToken ? { bytedToken } : {})
   return res.data.success ? res.data.data : null
 }

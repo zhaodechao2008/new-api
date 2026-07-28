@@ -354,6 +354,8 @@ func createUploadedAsset(c *gin.Context, userID int, group *model.AssetGroup) (*
 	if assetType == "" {
 		return nil, fmt.Errorf("unsupported file type")
 	}
+	// Store a clean name without the extension.
+	storedName := strings.TrimSuffix(file.Filename, filepath.Ext(file.Filename))
 
 	svc := ecloudSvc()
 
@@ -397,7 +399,7 @@ func createUploadedAsset(c *gin.Context, userID int, group *model.AssetGroup) (*
 		UserID:          userID,
 		AssetGroupID:    group.ID,
 		ProviderAssetID: ecloudAssetID,
-		Name:            file.Filename,
+		Name:            storedName,
 		AssetType:       assetType,
 		URL:             ecloudAssetURL,
 		Status:          "Active",
@@ -511,36 +513,136 @@ func CreateLivenessSession(c *gin.Context) {
 }
 
 // SyncLivenessGroups handles POST /api/assets/liveness/groups/sync.
-// Calls ecloud /api/video-studio/assets/ecloud/liveness/groups/sync and saves the result locally.
+// Calls ecloud liveness/groups/sync which returns ALL liveness groups for the account,
+// then upserts each one locally. Identifies newly created groups by diffing against the
+// pre-sync local set, so the caller can tell which group the bytedToken session created.
+// Body: {"bytedToken":"..."} — the token from CreateLivenessSession.
 func SyncLivenessGroups(c *gin.Context) {
 	userID := c.GetInt("id")
-	svc := ecloudSvc()
-	ecloudGroup, err := svc.SyncLivenessGroups()
+
+	var req struct {
+		BytedToken string `json:"bytedToken"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	// Snapshot the provider_group_ids already known locally before calling ecloud,
+	// so we can identify which groups are brand-new after the sync.
+	existingIDs, err := model.GetLivenessGroupProviderIDs(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 
-	createdTime := common.GetTimestamp()
-	if ecloudGroup.CreatedTime > 0 {
-		createdTime = ecloudGroup.CreatedTime
-	}
-	now := common.GetTimestamp()
-	group := &model.AssetGroup{
-		UserID:          userID,
-		ProviderGroupID: ecloudGroup.GroupID,
-		Name:            ecloudGroup.DisplayName,
-		Description:     "",
-		GroupType:       "LivenessFace",
-		ProjectName:     "default",
-		CreatedTime:     createdTime,
-		UpdatedTime:     now,
-	}
-	if err := model.UpsertAssetGroup(group); err != nil {
+	svc := ecloudSvc()
+	result, err := svc.SyncLivenessGroups(req.BytedToken)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": group})
+
+	now := common.GetTimestamp()
+	var synced []*model.AssetGroup
+	var newGroups []*model.AssetGroup
+
+	for _, eg := range result.Groups {
+		if eg.GroupID == "" {
+			continue
+		}
+		isNew := false
+		if _, known := existingIDs[eg.GroupID]; !known {
+			isNew = true
+		}
+		group := &model.AssetGroup{
+			UserID:          userID,
+			ProviderGroupID: eg.GroupID,
+			Name:            eg.DisplayName,
+			Description:     "",
+			GroupType:       "LivenessFace",
+			ProjectName:     "default",
+			CreatedTime:     now,
+			UpdatedTime:     now,
+		}
+		if upsertErr := model.UpsertAssetGroup(group); upsertErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": upsertErr.Error()})
+			return
+		}
+		synced = append(synced, group)
+		if isNew {
+			newGroups = append(newGroups, group)
+		}
+	}
+
+	if synced == nil {
+		synced = []*model.AssetGroup{}
+	}
+	if newGroups == nil {
+		newGroups = []*model.AssetGroup{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+		"groups":     synced,
+		"new_groups": newGroups,
+		"total":      len(synced),
+	}})
+}
+
+// RefreshGroupStatus handles POST /api/assets/groups/:group_id/refresh.
+// Calls ecloud GET /{providerGroupId} to fetch the latest asset statuses and
+// signed URLs, then writes any changes back to the local database.
+func RefreshGroupStatus(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("group_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid group_id"})
+		return
+	}
+	userID := c.GetInt("id")
+	group, err := model.GetAssetGroup(userID, groupID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "asset group not found"})
+		return
+	}
+	if group.ProviderGroupID == "" || strings.HasPrefix(group.ProviderGroupID, "local-") {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"synced": 0}})
+		return
+	}
+
+	svc := ecloudSvc()
+	detail, err := svc.GetGroup(group.ProviderGroupID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	var synced int
+	for _, ea := range detail.Assets {
+		if ea.AssetID == "" {
+			continue
+		}
+		status := normalizeEcloudStatus(ea.Status)
+		if updateErr := model.UpdateAssetStatusAndURL(ea.AssetID, status, ea.AssetURL); updateErr == nil {
+			synced++
+		}
+	}
+
+	// Refresh denormalized counts on the group after status updates.
+	_ = model.UpdateAssetGroupCounts(groupID)
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"synced": synced}})
+}
+
+// normalizeEcloudStatus converts ecloud's all-caps status values (e.g. "ACTIVE",
+// "PROCESSING", "FAILED") to the title-case form stored locally.
+func normalizeEcloudStatus(s string) string {
+	switch strings.ToUpper(s) {
+	case "ACTIVE":
+		return "Active"
+	case "PROCESSING":
+		return "Processing"
+	case "FAILED":
+		return "Failed"
+	default:
+		return "Active"
+	}
 }
 
 func assetTypeFromExtension(extension string) string {
