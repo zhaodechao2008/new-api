@@ -8,7 +8,7 @@ import (
 
 func SetAssetRouter(router *gin.Engine) {
 	assetRouter := router.Group("/api/assets")
-	assetRouter.Use(middleware.UserAuth())
+	assetRouter.Use(middleware.UserOrApiTokenAuth())
 	{
 		assetRouter.GET("/groups", controller.ListAssetGroups)
 		assetRouter.POST("/groups", controller.CreateAssetGroup)

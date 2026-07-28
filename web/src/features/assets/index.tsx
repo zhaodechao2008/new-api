@@ -740,12 +740,13 @@ export default function AssetsPage() {
                       )}
                     </TabsContent>
                     <TabsContent value='url'>
-                      <div className='space-y-3'>
+                      <div className='space-y-3 rounded-lg border-2 border-dashed border-border p-4'>
                         {/* Header: icon + title + supported formats */}
-                        <div className='flex items-start gap-3'>
-                          <span className='text-muted-foreground mt-0.5 shrink-0'>
-                            <Link2 className='size-7' aria-hidden='true' />
-                          </span>
+                        <div className='flex items-start gap-2'>
+                          <Link2
+                            className='text-muted-foreground mt-0.5 size-5 shrink-0'
+                            aria-hidden='true'
+                          />
                           <div className='min-w-0'>
                             <strong className='block text-sm'>
                               {t('通过公网 Public URL 导入素材')}
@@ -789,8 +790,8 @@ export default function AssetsPage() {
                         </div>
 
                         {/* Name + Asset Type (read-only, auto-detected) row */}
-                        <div className='flex gap-2'>
-                          <div className='flex-1'>
+                        <div className='grid grid-cols-[1fr_8rem] gap-2'>
+                          <div>
                             <label className='text-muted-foreground mb-1 block text-xs'>
                               {t('素材名称')}
                             </label>
@@ -803,7 +804,7 @@ export default function AssetsPage() {
                               disabled={urlMutation.isPending}
                             />
                           </div>
-                          <div className='w-32'>
+                          <div>
                             <label className='text-muted-foreground mb-1 block text-xs'>
                               {t('素材类型')}
                             </label>

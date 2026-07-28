@@ -243,6 +243,84 @@ func WssAuth(c *gin.Context) {
 
 }
 
+// UserOrApiTokenAuth accepts all three credential types for management endpoints
+// that must be callable both from the dashboard and programmatic API clients:
+//
+//  1. Dashboard JWT session token  (Bearer eyJhb...)
+//  2. Dashboard PAT                (opaque access_token stored in the user row)
+//  3. Relay API token              (Bearer sk-xxx, from the user's Token/API-Keys page)
+//
+// For dashboard credentials the caller must have at least common-user role.
+// For relay API tokens the standard TokenAuth checks apply (enabled user, IP limits, etc.).
+func UserOrApiTokenAuth() func(c *gin.Context) {
+	return func(c *gin.Context) {
+		raw, ok := authorizationToken(c.GetHeader("Authorization"))
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"code":    "AUTH_UNAUTHORIZED",
+				"message": common.TranslateMessage(c, i18n.MsgAuthAccessTokenInvalid),
+			})
+			return
+		}
+
+		// 1. Detect JWT session token (starts with the internal prefix).
+		identity, internal, parseErr := service.ParseDashboardAccessToken(raw)
+		if internal {
+			if parseErr != nil {
+				writeDashboardAuthError(c, parseErr)
+				return
+			}
+			_, user, err := service.ValidateLoginSession(identity)
+			if err != nil {
+				writeDashboardAuthError(c, err)
+				return
+			}
+			if user.Status != common.UserStatusEnabled {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
+				return
+			}
+			if user.Role < common.RoleCommonUser {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "code": "AUTH_INSUFFICIENT_PRIVILEGE", "message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege)})
+				return
+			}
+			if !validUserInfo(user.Username, user.Role) {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_INVALID", "message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid)})
+				return
+			}
+			setDashboardAuthContext(c, user, identity, false)
+			c.Next()
+			return
+		}
+
+		// 2. Opaque token — try dashboard PAT first.
+		patUser, patErr := model.ValidateAccessToken(raw)
+		if patErr == nil && patUser != nil && patUser.Id > 0 {
+			user, userErr := model.GetUserCache(patUser.Id)
+			if userErr == nil {
+				if user.Status != common.UserStatusEnabled {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
+					return
+				}
+				if user.Role < common.RoleCommonUser {
+					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "code": "AUTH_INSUFFICIENT_PRIVILEGE", "message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege)})
+					return
+				}
+				if !validUserInfo(user.Username, user.Role) {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_INVALID", "message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid)})
+					return
+				}
+				setDashboardAuthContext(c, user, service.AuthIdentity{UserID: user.Id, UserAuthVersion: user.AuthVersion}, true)
+				c.Next()
+				return
+			}
+		}
+
+		// 3. Fall back to relay API token (sk-xxx).
+		TokenAuth()(c)
+	}
+}
+
 // TokenOrUserAuth allows either session-based user auth or API token auth.
 // Used for endpoints that need to be accessible from both the dashboard and API clients.
 func TokenOrUserAuth() func(c *gin.Context) {
